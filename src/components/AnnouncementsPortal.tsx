@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { PortalLayout } from "@/layouts/PortalLayout";
 import type { Session } from "@/lib/session";
 
 type Announcement = {
@@ -381,7 +382,7 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
   }
 
   return (
-    <div className="min-h-screen">
+    <PortalLayout>
       <header className="border-b border-[#dfe5dc] bg-white/85 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
           <div className="flex items-center gap-3">
@@ -727,6 +728,6 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
           )}
         </section>
       </main>
-    </div>
+    </PortalLayout>
   );
 }
