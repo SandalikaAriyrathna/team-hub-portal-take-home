@@ -46,6 +46,11 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000) and sign in using
 `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 
+## API documentation
+
+The Postman collection and request examples are available in the
+[Team Hub Portal API documentation](https://documenter.getpostman.com/view/19114754/2sBY4Qszs1).
+
 ## Key decisions
 
 - I chose an announcements feed as the single content section so the
