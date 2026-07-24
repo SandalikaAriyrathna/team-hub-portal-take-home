@@ -24,7 +24,7 @@ function serializeAnnouncement(announcement: AnnouncementResponse) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getSession();
 
   if (!session) {
@@ -37,7 +37,15 @@ export async function GET() {
   try {
     await connectToDatabase();
 
-    const announcements = await Announcement.find()
+    const showHidden =
+      new URL(request.url).searchParams.get("hidden") === "true";
+    const announcements = await Announcement.find(
+      showHidden
+        ? { hidden: true }
+        : {
+            hidden: { $ne: true },
+          },
+    )
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();

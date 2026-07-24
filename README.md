@@ -61,5 +61,5 @@ Open [http://localhost:3000](http://localhost:3000) and sign in using
 - Zod validates API input, while Mongoose validates the stored data shape.
 - Local React state is sufficient for the single interactive announcements
   section, so no global state library was added.
-- The feed returns the newest 50 announcements. Editing, deleting,
-  registration, and role management are outside the requested scope.
+- The feed returns the newest 50 announcements. Editing, hiding, restoring, and
+  deleting were added beyond the requested create-and-view scope.

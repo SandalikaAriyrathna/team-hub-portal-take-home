@@ -1,4 +1,11 @@
-import { InferSchemaType, Model, Schema, model, models } from "mongoose";
+import {
+  InferSchemaType,
+  Model,
+  Schema,
+  deleteModel,
+  model,
+  models,
+} from "mongoose";
 
 const announcementSchema = new Schema(
   {
@@ -24,6 +31,10 @@ const announcementSchema = new Schema(
       ref: "User",
       required: true,
     },
+    hidden: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
@@ -33,6 +44,14 @@ const announcementSchema = new Schema(
 export type AnnouncementDocument = InferSchemaType<
   typeof announcementSchema
 >;
+
+const cachedAnnouncementModel = models.Announcement as
+  | Model<AnnouncementDocument>
+  | undefined;
+
+if (cachedAnnouncementModel && !cachedAnnouncementModel.schema.path("hidden")) {
+  deleteModel("Announcement");
+}
 
 export const Announcement =
   (models.Announcement as Model<AnnouncementDocument>) ??

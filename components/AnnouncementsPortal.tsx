@@ -19,10 +19,16 @@ type AnnouncementsResponse = {
   error?: string;
 };
 
+type FeedView = "active" | "hidden";
+
 class AuthenticationRequiredError extends Error {}
 
-async function fetchAnnouncements() {
-  const response = await fetch("/api/announcements");
+async function fetchAnnouncements(view: FeedView) {
+  const response = await fetch(
+    view === "hidden"
+      ? "/api/announcements?hidden=true"
+      : "/api/announcements",
+  );
 
   if (response.status === 401) {
     throw new AuthenticationRequiredError();
@@ -53,16 +59,25 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [editingBody, setEditingBody] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [hidingId, setHidingId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
+  const [itemError, setItemError] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
+  const [feedView, setFeedView] = useState<FeedView>("active");
 
   useEffect(() => {
     let active = true;
 
     async function initialLoad() {
       try {
-        const loadedAnnouncements = await fetchAnnouncements();
+        const loadedAnnouncements = await fetchAnnouncements(feedView);
 
         if (active) {
           setAnnouncements(loadedAnnouncements);
@@ -94,14 +109,14 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [feedView, router]);
 
   async function retryLoad() {
     setLoading(true);
     setError("");
 
     try {
-      setAnnouncements(await fetchAnnouncements());
+      setAnnouncements(await fetchAnnouncements(feedView));
     } catch (caught) {
       if (caught instanceof AuthenticationRequiredError) {
         router.replace("/login");
@@ -161,6 +176,197 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
     }
   }
 
+  function startEditing(announcement: Announcement) {
+    setEditingId(announcement.id);
+    setEditingTitle(announcement.title);
+    setEditingBody(announcement.body);
+    setItemError("");
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditingTitle("");
+    setEditingBody("");
+  }
+
+  async function saveAnnouncement(
+    event: FormEvent<HTMLFormElement>,
+    announcementId: string,
+  ) {
+    event.preventDefault();
+    setSavingId(announcementId);
+    setItemError("");
+
+    try {
+      const response = await fetch(`/api/announcements/${announcementId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: editingTitle,
+          body: editingBody,
+        }),
+      });
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      const data = (await response.json()) as AnnouncementsResponse;
+
+      if (!response.ok || !data.announcement) {
+        throw new Error(data.error ?? "Unable to update the announcement.");
+      }
+
+      setAnnouncements((current) =>
+        current.map((announcement) =>
+          announcement.id === announcementId
+            ? data.announcement!
+            : announcement,
+        ),
+      );
+      cancelEditing();
+    } catch (caught) {
+      setItemError(
+        caught instanceof Error ? caught.message : "Unable to update.",
+      );
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function deleteAnnouncement(announcement: Announcement) {
+    const confirmed = window.confirm(
+      `Delete “${announcement.title}”? This cannot be undone.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(announcement.id);
+    setItemError("");
+
+    try {
+      const response = await fetch(`/api/announcements/${announcement.id}`, {
+        method: "DELETE",
+      });
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      const data = (await response.json()) as AnnouncementsResponse;
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Unable to delete the announcement.");
+      }
+
+      setAnnouncements((current) =>
+        current.filter((item) => item.id !== announcement.id),
+      );
+
+      if (editingId === announcement.id) {
+        cancelEditing();
+      }
+    } catch (caught) {
+      setItemError(
+        caught instanceof Error ? caught.message : "Unable to delete.",
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function hideAnnouncement(announcement: Announcement) {
+    const confirmed = window.confirm(
+      `Hide “${announcement.title}” from the feed?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setHidingId(announcement.id);
+    setItemError("");
+
+    try {
+      const response = await fetch(
+        `/api/announcements/${announcement.id}/hide`,
+        {
+          method: "PATCH",
+        },
+      );
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      const data = (await response.json()) as AnnouncementsResponse;
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Unable to hide the announcement.");
+      }
+
+      setAnnouncements((current) =>
+        current.filter((item) => item.id !== announcement.id),
+      );
+
+      if (editingId === announcement.id) {
+        cancelEditing();
+      }
+    } catch (caught) {
+      setItemError(
+        caught instanceof Error ? caught.message : "Unable to hide.",
+      );
+    } finally {
+      setHidingId(null);
+    }
+  }
+
+  async function restoreAnnouncement(announcement: Announcement) {
+    setRestoringId(announcement.id);
+    setItemError("");
+
+    try {
+      const response = await fetch(
+        `/api/announcements/${announcement.id}/unhide`,
+        {
+          method: "PATCH",
+        },
+      );
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      const data = (await response.json()) as AnnouncementsResponse;
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Unable to restore the announcement.");
+      }
+
+      setAnnouncements((current) =>
+        current.filter((item) => item.id !== announcement.id),
+      );
+
+      if (editingId === announcement.id) {
+        cancelEditing();
+      }
+    } catch (caught) {
+      setItemError(
+        caught instanceof Error ? caught.message : "Unable to restore.",
+      );
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
   async function logout() {
     setLoggingOut(true);
 
@@ -209,29 +415,55 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
         <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#174f3f]">
-              Team updates
+              {feedView === "active" ? "Team updates" : "Hidden items"}
             </p>
             <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
-              Announcements
+              {feedView === "active"
+                ? "Announcements"
+                : "Hidden announcements"}
             </h1>
             <p className="mt-3 max-w-xl leading-7 text-[#657269]">
-              The latest news, decisions, and celebrations from across the
-              team.
+              {feedView === "active"
+                ? "The latest news, decisions, and celebrations from across the team."
+                : "Restore an announcement to return it to the team feed."}
             </p>
           </div>
 
-          <button
-            className="focus-ring rounded-xl bg-[#174f3f] px-5 py-3 font-semibold text-white transition hover:bg-[#0d382c]"
-            type="button"
-            onClick={() => {
-              setComposerOpen((open) => !open);
-              setFormError("");
-            }}
-            aria-expanded={composerOpen}
-            aria-controls="announcement-composer"
-          >
-            {composerOpen ? "Close composer" : "+ New announcement"}
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button
+              className="focus-ring rounded-xl border border-[#dfe5dc] bg-white px-5 py-3 font-semibold transition hover:bg-[#f1f4ee]"
+              type="button"
+              onClick={() => {
+                setFeedView((current) =>
+                  current === "active" ? "hidden" : "active",
+                );
+                setComposerOpen(false);
+                setItemError("");
+                setError("");
+                setLoading(true);
+                cancelEditing();
+              }}
+            >
+              {feedView === "active"
+                ? "View hidden"
+                : "Back to announcements"}
+            </button>
+
+            {feedView === "active" && (
+              <button
+                className="focus-ring rounded-xl bg-[#174f3f] px-5 py-3 font-semibold text-white transition hover:bg-[#0d382c]"
+                type="button"
+                onClick={() => {
+                  setComposerOpen((open) => !open);
+                  setFormError("");
+                }}
+                aria-expanded={composerOpen}
+                aria-controls="announcement-composer"
+              >
+                {composerOpen ? "Close composer" : "+ New announcement"}
+              </button>
+            )}
+          </div>
         </div>
 
         {composerOpen && (
@@ -292,6 +524,15 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
         )}
 
         <section className="mt-10" aria-label="Announcement feed">
+          {itemError && (
+            <p
+              className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              role="alert"
+            >
+              {itemError}
+            </p>
+          )}
+
           {loading && (
             <div
               className="space-y-4"
@@ -332,10 +573,14 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
                 ✦
               </span>
               <h2 className="mt-4 text-xl font-semibold">
-                Start the conversation
+                {feedView === "active"
+                  ? "Start the conversation"
+                  : "No hidden announcements"}
               </h2>
               <p className="mt-2 text-[#657269]">
-                Publish the first announcement for your team.
+                {feedView === "active"
+                  ? "Publish the first announcement for your team."
+                  : "Announcements you hide will appear here."}
               </p>
             </div>
           )}
@@ -352,16 +597,128 @@ export function AnnouncementsPortal({ user }: { user: Session }) {
                       {announcement.authorName.charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-xl font-semibold tracking-[-0.02em]">
-                        {announcement.title}
-                      </h2>
-                      <p className="mt-1 text-xs text-[#77837a]">
-                        {announcement.authorName} ·{" "}
-                        {formatDate(announcement.createdAt)}
-                      </p>
-                      <p className="mt-5 whitespace-pre-wrap leading-7 text-[#3f4b43]">
-                        {announcement.body}
-                      </p>
+                      {editingId === announcement.id ? (
+                        <form
+                          onSubmit={(event) =>
+                            saveAnnouncement(event, announcement.id)
+                          }
+                        >
+                          <label
+                            className="mb-2 block text-sm font-semibold"
+                            htmlFor={`edit-title-${announcement.id}`}
+                          >
+                            Title
+                          </label>
+                          <input
+                            className="focus-ring h-11 w-full rounded-xl border border-[#d6ded5] px-4 outline-none focus:border-[#174f3f]"
+                            id={`edit-title-${announcement.id}`}
+                            value={editingTitle}
+                            onChange={(event) =>
+                              setEditingTitle(event.target.value)
+                            }
+                            minLength={3}
+                            maxLength={100}
+                            required
+                          />
+                          <label
+                            className="mb-2 mt-4 block text-sm font-semibold"
+                            htmlFor={`edit-body-${announcement.id}`}
+                          >
+                            Message
+                          </label>
+                          <textarea
+                            className="focus-ring min-h-32 w-full resize-y rounded-xl border border-[#d6ded5] p-4 outline-none focus:border-[#174f3f]"
+                            id={`edit-body-${announcement.id}`}
+                            value={editingBody}
+                            onChange={(event) =>
+                              setEditingBody(event.target.value)
+                            }
+                            minLength={10}
+                            maxLength={1000}
+                            required
+                          />
+                          <div className="mt-4 flex flex-wrap gap-3">
+                            <button
+                              className="focus-ring rounded-xl bg-[#174f3f] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                              type="submit"
+                              disabled={savingId === announcement.id}
+                            >
+                              {savingId === announcement.id
+                                ? "Saving…"
+                                : "Save changes"}
+                            </button>
+                            <button
+                              className="focus-ring rounded-xl border border-[#dfe5dc] px-4 py-2 text-sm font-semibold"
+                              type="button"
+                              onClick={cancelEditing}
+                              disabled={savingId === announcement.id}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                            <div>
+                              <h2 className="text-xl font-semibold tracking-[-0.02em]">
+                                {announcement.title}
+                              </h2>
+                              <p className="mt-1 text-xs text-[#77837a]">
+                                {announcement.authorName} ·{" "}
+                                {formatDate(announcement.createdAt)}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                className="focus-ring rounded-lg border border-[#dfe5dc] px-3 py-1.5 text-sm font-semibold hover:bg-[#f1f4ee]"
+                                type="button"
+                                onClick={() => startEditing(announcement)}
+                              >
+                                Edit
+                              </button>
+                              {feedView === "active" ? (
+                                <button
+                                  className="focus-ring rounded-lg border border-[#dfe5dc] px-3 py-1.5 text-sm font-semibold hover:bg-[#f1f4ee] disabled:cursor-not-allowed disabled:opacity-60"
+                                  type="button"
+                                  onClick={() => hideAnnouncement(announcement)}
+                                  disabled={hidingId === announcement.id}
+                                >
+                                  {hidingId === announcement.id
+                                    ? "Hiding…"
+                                    : "Hide"}
+                                </button>
+                              ) : (
+                                <button
+                                  className="focus-ring rounded-lg border border-[#dfe5dc] px-3 py-1.5 text-sm font-semibold hover:bg-[#f1f4ee] disabled:cursor-not-allowed disabled:opacity-60"
+                                  type="button"
+                                  onClick={() =>
+                                    restoreAnnouncement(announcement)
+                                  }
+                                  disabled={restoringId === announcement.id}
+                                >
+                                  {restoringId === announcement.id
+                                    ? "Restoring…"
+                                    : "Restore"}
+                                </button>
+                              )}
+                              <button
+                                className="focus-ring rounded-lg border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                type="button"
+                                onClick={() => deleteAnnouncement(announcement)}
+                                disabled={deletingId === announcement.id}
+                              >
+                                {deletingId === announcement.id
+                                  ? "Deleting…"
+                                  : "Delete"}
+                              </button>
+                            </div>
+                          </div>
+                          <p className="mt-5 whitespace-pre-wrap leading-7 text-[#3f4b43]">
+                            {announcement.body}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </article>
