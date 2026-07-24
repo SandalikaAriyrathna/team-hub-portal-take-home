@@ -63,7 +63,6 @@ The Postman collection and request examples are available in the
   stores the password as a bcrypt hash.
 - JWT sessions are stored in HTTP-only, same-site cookies. Both the protected
   page and announcement API routes verify the session.
-- Zod validates API input, while Mongoose validates the stored data shape.
 - Local React state is sufficient for the single interactive announcements
   section, so no global state library was added.
 - The feed returns the newest 50 announcements. Editing, hiding, restoring, and
